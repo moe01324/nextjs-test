@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import type { LoggedRequest } from "@/app/lib/request-log";
+import { tryParseGeoJson } from "@/app/lib/geojson";
+
+const GeoJsonMap = dynamic(() => import("./GeoJsonMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-60 w-full rounded bg-zinc-100 dark:bg-zinc-900 animate-pulse" />
+  ),
+});
 
 const METHOD_COLORS: Record<string, string> = {
   GET: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
@@ -112,6 +121,7 @@ export default function RequestsLive() {
         const methodClass =
           METHOD_COLORS[r.method] ?? METHOD_COLORS.OPTIONS;
         const queryEntries = Object.entries(r.query);
+        const geo = tryParseGeoJson(r.body);
         return (
           <article
             key={r.id}
@@ -170,6 +180,17 @@ export default function RequestsLive() {
                 <pre className="mt-2 overflow-x-auto rounded bg-zinc-100 dark:bg-zinc-900 p-3 font-mono text-xs text-zinc-900 dark:text-zinc-100">
                   {body || "(empty)"}
                 </pre>
+              </details>
+            )}
+
+            {geo && (
+              <details open className="mt-3">
+                <summary className="cursor-pointer text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200">
+                  Map preview
+                </summary>
+                <div className="mt-2">
+                  <GeoJsonMap data={geo} />
+                </div>
               </details>
             )}
           </article>
