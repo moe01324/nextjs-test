@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import type { LoggedRequest } from "@/app/lib/request-log";
 import { tryParseGeoJson } from "@/app/lib/geojson";
@@ -50,69 +50,97 @@ export default function RequestsLive() {
   const [requests, setRequests] = useState<LoggedRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch("/api/requests", { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as { requests: LoggedRequest[] };
+      setRequests(data.requests);
+      setError(null);
+      setLastRefreshed(new Date());
+      setLoaded(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    refresh();
+  }, [refresh]);
 
-    async function tick() {
-      try {
-        const res = await fetch("/api/requests", { cache: "no-store" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = (await res.json()) as { requests: LoggedRequest[] };
-        if (!cancelled) {
-          setRequests(data.requests);
-          setError(null);
-          setLoaded(true);
-        }
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      }
-    }
-
-    tick();
-    const id = setInterval(tick, 2000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, []);
+  const header = (
+    <div className="flex items-center gap-3">
+      <button
+        type="button"
+        onClick={refresh}
+        disabled={refreshing}
+        className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-1.5 text-sm font-medium text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {refreshing ? "Refreshing…" : "Refresh"}
+      </button>
+      <span className="text-xs text-zinc-500 dark:text-zinc-400">
+        {loaded ? `${requests.length} request${requests.length === 1 ? "" : "s"}` : "—"}
+        {lastRefreshed && (
+          <>
+            {" · last refreshed "}
+            <time dateTime={lastRefreshed.toISOString()}>
+              {lastRefreshed.toLocaleTimeString()}
+            </time>
+          </>
+        )}
+      </span>
+    </div>
+  );
 
   if (!loaded && !error) {
     return (
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
+      <div className="flex flex-col gap-3">
+        {header}
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
+      </div>
     );
   }
 
   if (requests.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 p-6 text-sm text-zinc-600 dark:text-zinc-400">
-        <p className="mb-2 font-medium text-zinc-800 dark:text-zinc-200">
-          No requests yet.
-        </p>
-        <p className="mb-3">
-          Send any HTTP method to{" "}
-          <code className="font-mono">/api/ingest/&lt;anything&gt;</code>. The
-          log lives in memory and resets when the server restarts.
-        </p>
-        <pre className="overflow-x-auto rounded bg-zinc-100 dark:bg-zinc-900 p-3 text-xs">
+      <div className="flex flex-col gap-3">
+        {header}
+        <div className="rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 p-6 text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="mb-2 font-medium text-zinc-800 dark:text-zinc-200">
+            No requests yet.
+          </p>
+          <p className="mb-3">
+            Send any HTTP method to{" "}
+            <code className="font-mono">/api/ingest/&lt;anything&gt;</code>. The
+            log lives in memory and resets when the server restarts.
+          </p>
+          <pre className="overflow-x-auto rounded bg-zinc-100 dark:bg-zinc-900 p-3 text-xs">
 {`curl -X POST http://localhost:3000/api/ingest/stripe/webhook \\
   -H 'content-type: application/json' \\
   -d '{"event":"charge.succeeded","amount":4200}'`}
-        </pre>
-        {error && (
-          <p className="mt-3 text-rose-600 dark:text-rose-400">
-            Polling error: {error}
-          </p>
-        )}
+          </pre>
+          {error && (
+            <p className="mt-3 text-rose-600 dark:text-rose-400">
+              Refresh error: {error}
+            </p>
+          )}
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-3">
+      {header}
       {error && (
         <p className="text-sm text-rose-600 dark:text-rose-400">
-          Polling error: {error}
+          Refresh error: {error}
         </p>
       )}
       {requests.map((r) => {
